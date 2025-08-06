@@ -191,3 +191,104 @@
     (<= amount MAX-DEPOSIT-AMOUNT)
   )
 )
+
+;; Update confirmation count for pending deposits
+(define-private (update-deposit-confirmations
+    (tx-hash (buff 32))
+    (new-confirmations uint)
+  )
+  (let ((deposit (unwrap! (map-get? deposits { tx-hash: tx-hash }) ERR-INVALID-BRIDGE-STATUS)))
+    (map-set deposits { tx-hash: tx-hash }
+      (merge deposit { confirmations: new-confirmations })
+    )
+    (ok true)
+  )
+)
+
+;; ADMINISTRATIVE FUNCTIONS
+
+;; Initialize bridge protocol with default configuration
+(define-public (initialize-bridge)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (var-set bridge-paused false)
+    (ok true)
+  )
+)
+
+;; Emergency bridge suspension mechanism
+(define-public (pause-bridge)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (var-set bridge-paused true)
+    (ok true)
+  )
+)
+
+;; Resume bridge operations after maintenance
+(define-public (resume-bridge)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (var-get bridge-paused) ERR-INVALID-BRIDGE-STATUS)
+    (var-set bridge-paused false)
+    (ok true)
+  )
+)
+
+;; VALIDATOR MANAGEMENT
+
+;; Register new validator for consensus participation
+(define-public (add-validator (validator principal))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (is-valid-principal validator) ERR-INVALID-VALIDATOR-ADDRESS)
+    (map-set validators validator true)
+    (ok true)
+  )
+)
+
+;; Revoke validator privileges
+(define-public (remove-validator (validator principal))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (is-valid-principal validator) ERR-INVALID-VALIDATOR-ADDRESS)
+    (map-set validators validator false)
+    (ok true)
+  )
+)
+
+;; CORE BRIDGE OPERATIONS
+
+;; Initiate cross-chain deposit process
+(define-public (initiate-deposit
+    (tx-hash (buff 32))
+    (amount uint)
+    (recipient principal)
+    (btc-sender (buff 33))
+  )
+  (begin
+    (asserts! (not (var-get bridge-paused)) ERR-BRIDGE-PAUSED)
+    (asserts! (validate-deposit-amount amount) ERR-INVALID-AMOUNT)
+    (asserts! (unwrap! (map-get? validators tx-sender) ERR-NOT-AUTHORIZED)
+      ERR-NOT-AUTHORIZED
+    )
+    (asserts! (is-valid-tx-hash tx-hash) ERR-INVALID-TX-HASH)
+    (asserts! (is-none (map-get? deposits { tx-hash: tx-hash }))
+      ERR-ALREADY-PROCESSED
+    )
+    (asserts! (is-valid-principal recipient) ERR-INVALID-RECIPIENT-ADDRESS)
+    (asserts! (is-valid-btc-address btc-sender) ERR-INVALID-BTC-ADDRESS)
+
+    (let ((validated-deposit {
+        amount: amount,
+        recipient: recipient,
+        processed: false,
+        confirmations: u0,
+        timestamp: block-height,
+        btc-sender: btc-sender,
+      }))
+      (map-set deposits { tx-hash: tx-hash } validated-deposit)
+      (ok true)
+    )
+  )
+)
