@@ -94,3 +94,100 @@
     timestamp: uint,
   }
 )
+
+;; User balance tracking within bridge ecosystem
+(define-map bridge-balances
+  principal
+  uint
+)
+
+;; READ-ONLY FUNCTIONS
+
+;; Retrieve deposit information by transaction hash
+(define-read-only (get-deposit (tx-hash (buff 32)))
+  (map-get? deposits { tx-hash: tx-hash })
+)
+
+;; Check current bridge operational status
+(define-read-only (get-bridge-status)
+  (var-get bridge-paused)
+)
+
+;; Verify validator authorization status
+(define-read-only (get-validator-status (validator principal))
+  (default-to false (map-get? validators validator))
+)
+
+;; Query user's bridged asset balance
+(define-read-only (get-balance (user principal))
+  (default-to u0 (map-get? bridge-balances user))
+)
+
+;; Cryptographic signature verification utility
+(define-read-only (verify-signature
+    (tx-hash (buff 32))
+    (validator principal)
+    (signature (buff 65))
+  )
+  (let ((stored-sig (map-get? validator-signatures {
+      tx-hash: tx-hash,
+      validator: validator,
+    })))
+    (and
+      (is-some stored-sig)
+      (is-eq signature (get signature (unwrap-panic stored-sig)))
+    )
+  )
+)
+
+;; VALIDATION UTILITIES
+
+;; Validate principal address format and security constraints
+(define-private (is-valid-principal (address principal))
+  (and
+    (is-ok (principal-destruct? address))
+    (not (is-eq address CONTRACT-OWNER))
+    (not (is-eq address (as-contract tx-sender)))
+  )
+)
+
+;; Bitcoin address format validation
+(define-private (is-valid-btc-address (btc-addr (buff 33)))
+  (and
+    (is-eq (len btc-addr) u33)
+    (not (is-eq btc-addr
+      0x000000000000000000000000000000000000000000000000000000000000000000
+    ))
+    true
+  )
+)
+
+;; Transaction hash integrity verification
+(define-private (is-valid-tx-hash (tx-hash (buff 32)))
+  (and
+    (is-eq (len tx-hash) u32)
+    (not (is-eq tx-hash
+      0x0000000000000000000000000000000000000000000000000000000000000000
+    ))
+    true
+  )
+)
+
+;; Cryptographic signature format validation
+(define-private (is-valid-signature (signature (buff 65)))
+  (and
+    (is-eq (len signature) u65)
+    (not (is-eq signature
+      0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+    ))
+    true
+  )
+)
+
+;; Deposit amount boundary validation
+(define-private (validate-deposit-amount (amount uint))
+  (and
+    (>= amount MIN-DEPOSIT-AMOUNT)
+    (<= amount MAX-DEPOSIT-AMOUNT)
+  )
+)
